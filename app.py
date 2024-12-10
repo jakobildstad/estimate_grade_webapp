@@ -45,13 +45,10 @@ def upload(subject_code):
         subject_info = fetch_subject_info(subject_code)
         exam_content = read_file_content(exam_path)
         solution_content = read_file_content(solution_path) if solution_path else None
-        radio_button_answers = extract_radio_buttons(exam_path)
 
-        # Formater svarene fra radioknapper
-        formatted_radio_answers = "\n".join([f"{name}: {value}" for name, value in radio_button_answers])
 
         grade, short_reason, full_reason, reasoning = get_feedback_from_chatgpt(
-            subject_code, subject_info, exam_content, solution_content, formatted_radio_answers
+            subject_code, subject_info, exam_content, solution_content
         )
 
         # Fjern '**' fra karakter og begrunnelser
@@ -89,23 +86,6 @@ def fetch_subject_info(subject_code):
     return "Fant ikke spesifikk informasjon om emnet."
 
 
-def extract_radio_buttons(file_path):
-    """
-    Ekstraher valgte radioknapper og avkrysningsbokser fra PDF-filen.
-    """
-    reader = PyPDF2.PdfReader(file_path)
-    selected_answers = []
-    if "/AcroForm" in reader.trailer["/Root"]:
-        fields = reader.trailer["/Root"]["/AcroForm"].get("/Fields", [])
-        for field in fields:
-            obj = field.get_object()
-            if obj.get("/FT") == "/Btn":  # Radioknapp eller avkrysningsboks
-                name = obj.get("/T", "Ukjent spørsmål")  # Navn på feltet
-                value = obj.get("/V", "Ikke valgt")  # Verdi
-                selected_answers.append((name, value))
-    return selected_answers
-
-
 def read_file_content(file_path):
     if not file_path:
         return ""
@@ -134,8 +114,7 @@ def read_pdf(file_path):
     return text
 
 
-def get_feedback_from_chatgpt(subject_code, subject_info, exam_content, solution_content, radio_button_answers):
-    print(radio_button_answers)
+def get_feedback_from_chatgpt(subject_code, subject_info, exam_content, solution_content):
     prompt = f"""
 Du er en sensor i faget {subject_code}. Her er informasjon om emnet:
 {subject_info}
@@ -150,9 +129,6 @@ Nedenfor er kandidatens eksamensbesvarelse. Du må anta at dette er en nøyaktig
 --- Løsningsforslag START ---
 {f"{solution_content}" if solution_content else "Ingen løsningsforslag ble oppgitt."}
 --- Løsningsforslag SLUTT ---
-
-Her er svarene på flervalgsoppgavene (radioknapper):
-{radio_button_answers if radio_button_answers else "Ingen info"}
 
 
 Vurder besvarelsen basert på informasjonen om emnet. Først skal du resonnere stegvis og grundig om besvarelsen (chain-of-thought). 

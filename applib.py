@@ -1,4 +1,4 @@
-API_KEY = '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'
+API_KEY = "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"
 
 infodict = {
     "TDT4110": """Pensumliste: Uttrykk i Python (F Uke 34, Ø1)
