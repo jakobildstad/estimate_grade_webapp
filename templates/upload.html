@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+    <meta charset="UTF-8">
+    <title>Last opp eksamensbesvarelse for {{ subject_code }}</title>
+    <style>
+        body {
+            background-color: #000000;
+            color: #ffffff;
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+        }
+
+        .container {
+            width: 80%;
+            max-width: 600px;
+            margin: 0 auto;
+            text-align: center;
+            padding: 50px 0;
+        }
+
+        h1 {
+            margin-bottom: 40px;
+            font-size: 2em;
+        }
+
+        form {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 20px;
+        }
+
+        label {
+            display: block;
+            text-align: left;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+
+        input[type="file"] {
+            background: #333;
+            border: 1px solid #555;
+            color: #ccc;
+            padding: 10px;
+            border-radius: 5px;
+            width: 100%;
+            max-width: 300px;
+            cursor: pointer;
+        }
+
+        input[type="file"]:hover {
+            background: #444;
+        }
+
+        .field-container {
+            text-align: left;
+            width: 100%;
+            max-width: 300px;
+        }
+
+        .field-container p {
+            margin: 0;
+            font-size: 0.9em;
+        }
+
+        button[type="submit"] {
+            background: #828282;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 5px;
+            color: #ffffff;
+            font-size: 1em;
+            cursor: pointer;
+            transition: background 0.3s ease;
+        }
+
+        button[type="submit"]:hover {
+            background: #00a2ff;
+        }
+
+        #loading-message {
+            display: none;
+            font-size: 1.2em;
+            margin-top: 30px;
+            color: #ffffff;; /* Grønn for at det synes tydelig */
+        }
+
+        .error {
+            color: #ff6666;
+            margin-top: 20px;
+        }
+
+        a {
+            color: #007bff;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Last opp eksamensbesvarelse for {{ subject_code }}</h1>
+        {% if error %}
+            <p class="error">{{ error }}</p>
+        {% endif %}
+        <form id="uploadForm" method="post" enctype="multipart/form-data">
+            <div class="field-container">
+                <p>Eksamensfil:</p>
+                <input type="file" name="examFile" required>
+            </div>
+            <div class="field-container">
+                <p>Løsningsforslag (valgfritt):</p>
+                <input type="file" name="solutionFile">
+            </div>
+            <button type="submit">Send inn</button>
+        </form>
+
+        <div id="loading-message">Retter eksamensbesvarelsen...</div>
+
+        <p style="margin-top:40px;"><a href="{{ url_for('home') }}">Tilbake til start</a></p>
+    </div>
+
+    <script>
+        const form = document.getElementById('uploadForm');
+        const loadingMessage = document.getElementById('loading-message');
+
+        form.addEventListener('submit', function() {
+            loadingMessage.style.display = 'block';
+        });
+    </script>
+</body>
+</html>

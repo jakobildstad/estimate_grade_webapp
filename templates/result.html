@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+    <meta charset="UTF-8">
+    <title>Tilbakemelding for {{ subject_code }}</title>
+    <style>
+        body {
+            background-color: black;
+            color: white;
+            font-family: Arial, sans-serif;
+        }
+        .container {
+            width: 80%;
+            margin: 0 auto;
+            text-align: center;
+        }
+        .grade {
+            font-size: 8em;
+            margin-top: 50px;
+            margin-bottom: 0;
+        }
+        .short-reason {
+            font-size: 1.5em;
+            margin-top: 10px;
+            margin-bottom: 50px;
+        }
+        .full-reason {
+            text-align: left;
+            margin-top: 50px;
+            font-size: 1em;
+            line-height: 1.6;
+        }
+        .reasoning {
+            text-align: left;
+            margin-top: 50px;
+            font-size: 1em;
+            line-height: 1.6;
+            color: #ccc;
+        }
+        a {
+            color: blue;
+        }
+        h1, h2 {
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Tilbakemelding for {{ subject_code }}</h1>
+
+        <h2>Resultat:</h2>
+        {% if grade and grade != 'Ukjent' %}
+            <div class="grade">{{ grade }}</div>
+        {% endif %}
+        {% if short_reason %}
+            <div class="short-reason">{{ short_reason }}</div>
+        {% endif %}
+        {% if full_reason %}
+            <div class="full-reason">{{ full_reason|safe }}</div>
+        {% endif %}
+
+        <h2>Detaljert resonnering:</h2>
+        {% if reasoning %}
+            <div class="reasoning">{{ reasoning|safe }}</div>
+        {% endif %}
+
+        <p><a href="{{ url_for('home') }}">Tilbake til start</a></p>
+    </div>
+</body>
+</html>
