@@ -3,17 +3,9 @@ import os
 import requests
 from bs4 import BeautifulSoup
 import PyPDF2
-from pdfrw import PdfReader
 from openai import OpenAI
 from applib import API_KEY, infodict
 import markdown
-import tempfile
-import pytesseract
-from pdf2image import convert_from_path
-import re
-
-# Sett sti til tesseract om nødvendig:
-# pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
 client = OpenAI(api_key=API_KEY)
 app = Flask(__name__)
@@ -49,13 +41,18 @@ def upload(subject_code):
             solution_path = os.path.join(app.config['UPLOAD_FOLDER'], solution_file.filename)
             solution_file.save(solution_path)
 
+        # Hent data fra PDF
         subject_info = fetch_subject_info(subject_code)
         exam_content = read_file_content(exam_path)
         solution_content = read_file_content(solution_path) if solution_path else None
-        form_field_content = extract_form_fields(exam_path)
-        ocr_content = detect_selected_answers_ocr(exam_path)
+        radio_button_answers = extract_radio_buttons(exam_path)
 
-        grade, short_reason, full_reason, reasoning = get_feedback_from_chatgpt(subject_code, subject_info, exam_content, solution_content,  ocr_content, form_field_content)
+        # Formater svarene fra radioknapper
+        formatted_radio_answers = "\n".join([f"{name}: {value}" for name, value in radio_button_answers])
+
+        grade, short_reason, full_reason, reasoning = get_feedback_from_chatgpt(
+            subject_code, subject_info, exam_content, solution_content, formatted_radio_answers
+        )
 
         # Fjern '**' fra karakter og begrunnelser
         grade = grade.replace('**', '')
@@ -78,19 +75,6 @@ def upload(subject_code):
     return render_template('upload.html', subject_code=subject_code)
 
 
-def extract_form_fields(pdf_path):
-    pdf = PdfReader(pdf_path)
-    fields = []
-    if '/AcroForm' in pdf:
-        acroform = pdf['/AcroForm']
-        if '/Fields' in acroform:
-            for field in acroform['/Fields']:
-                field_dict = field.resolve()
-                name = field_dict.get('/T')
-                value = field_dict.get('/V', 'Ikke valgt')
-                fields.append({'name': name, 'value': value})
-    return fields
-
 def fetch_subject_info(subject_code):
     possible_urls = [
         f"https://wiki.math.ntnu.no/{subject_code}",
@@ -105,6 +89,23 @@ def fetch_subject_info(subject_code):
     return "Fant ikke spesifikk informasjon om emnet."
 
 
+def extract_radio_buttons(file_path):
+    """
+    Ekstraher valgte radioknapper og avkrysningsbokser fra PDF-filen.
+    """
+    reader = PyPDF2.PdfReader(file_path)
+    selected_answers = []
+    if "/AcroForm" in reader.trailer["/Root"]:
+        fields = reader.trailer["/Root"]["/AcroForm"].get("/Fields", [])
+        for field in fields:
+            obj = field.get_object()
+            if obj.get("/FT") == "/Btn":  # Radioknapp eller avkrysningsboks
+                name = obj.get("/T", "Ukjent spørsmål")  # Navn på feltet
+                value = obj.get("/V", "Ikke valgt")  # Verdi
+                selected_answers.append((name, value))
+    return selected_answers
+
+
 def read_file_content(file_path):
     if not file_path:
         return ""
@@ -113,50 +114,13 @@ def read_file_content(file_path):
     content = ""
 
     if file_extension.lower() == '.pdf':
-        # 1. Trekk ut tekst fra PDF
+        # Les tekst fra PDF
         pdf_text = read_pdf(file_path)
         content += f"\n\n[PDF Tekstuttrekk:]\n{pdf_text}"
-
-        # 2. Trekk ut formfelter (multiple-choice eller skjema)
-        form_fields = extract_form_fields(file_path)
-        if form_fields:
-            content += "\n\n[Skjemaopplysninger (multiple-choice):]\n"
-            for field in form_fields:
-                name = field.get('name', 'Ukjent felt')
-                value = field.get('value', 'Ingen verdi')
-                content += f"Felt: {name}, Verdi: {value}\n"
-        else:
-            content += "\n\n[Ingen skjemaopplysninger funnet.]\n"
-
-        # 3. OCR for grafiske elementer og kryss
-        ocr_text = detect_selected_answers_ocr(file_path)
-        content += f"\n\n[OCR-oppdagelser:]\n{ocr_text}"
-
     else:
         content += f"Ukjent filformat: {file_extension}"
 
     return content
-
-
-def detect_selected_answers_ocr(file_path):
-    """
-    Bruk OCR for å identifisere kryssede svar i multiple-choice-spørsmål.
-    """
-    ocr_results = "\n\n[Valgte svar fra OCR]:\n"
-    with tempfile.TemporaryDirectory() as temp_dir:
-        images = convert_from_path(file_path, output_folder=temp_dir, dpi=300)
-        for page_number, image in enumerate(images, start=1):
-            ocr_text = pytesseract.image_to_string(image, lang='nor')  # Eller 'eng' for engelsk
-            # Tilpass regex for OCR-resultater:
-            pattern = r'■\s*(.*)'  # Fanger opp valgte alternativer merket med '■'
-            matches = re.findall(pattern, ocr_text, re.MULTILINE)
-            if matches:
-                ocr_results += f"Side {page_number}:\n"
-                for match in matches:
-                    ocr_results += f"- {match}\n"
-            else:
-                ocr_results += f"Side {page_number}: Ingen valgte svar funnet.\n"
-    return ocr_results
 
 
 def read_pdf(file_path):
@@ -170,35 +134,36 @@ def read_pdf(file_path):
     return text
 
 
-def get_feedback_from_chatgpt(subject_code, subject_info, exam_content, solution_content, ocr_content, form_field_content):
-    print(exam_content)
+def get_feedback_from_chatgpt(subject_code, subject_info, exam_content, solution_content, radio_button_answers):
+    print(radio_button_answers)
     prompt = f"""
 Du er en sensor i faget {subject_code}. Her er informasjon om emnet:
 {subject_info}
-{infodict[subject_code] if subject_code in infodict else "OBS: dette emnet er ikke støttet, så estimatet er ikke veldig nøyaktig."}
+{infodict[subject_code] if subject_code in infodict else ""}
 
-Nedenfor er kandidatens eksamensbesvarelse, inkludert alle fritekstsvar, kode, figurer beskrevet i tekst, samt flervalgs- og skjemaopplysninger (form fields) og/eller OCR-identifiserte svar. Du må anta at dette er en nøyaktig gjengivelse av kandidatens svar. Ikke gjett utover det som står her.
+Nedenfor er kandidatens eksamensbesvarelse. Du må anta at dette er en nøyaktig gjengivelse av kandidatens svar.
 
 --- Kandidatens eksamensbesvarelse START ---
 {exam_content}
 --- Kandidatens eksamensbesvarelse SLUTT ---
 
---- Skjemaopplysninger START ---
-{form_field_content}
---- Skjemaopplysninger SLUTT ---
-
---- OCR-data START ---
-{ocr_content}
---- OCR-data SLUTT ---
-
 --- Løsningsforslag START ---
 {f"{solution_content}" if solution_content else "Ingen løsningsforslag ble oppgitt."}
 --- Løsningsforslag SLUTT ---
+
+Her er svarene på flervalgsoppgavene (radioknapper):
+{radio_button_answers if radio_button_answers else "Ingen info"}
+
 
 Vurder besvarelsen basert på informasjonen om emnet. Først skal du resonnere stegvis og grundig om besvarelsen (chain-of-thought). 
 På aller siste linje skal du oppgi Karakter||Kort begrunnelse||Full begrunnelse, og ikke nevn karakteren før siste linje. 
 Eksempel på aller siste linje:
 B||Kandidaten oppnådde 73%, som tilsvarer karakteren C.||Kandidaten leverte sterke løsninger på programmeringsoppgavene i fritekstdelen, men manglet flere svar i flervalgsdelen, noe som trakk ned den totale poengsummen.
+Du må følge karakterskalaen når du setter karakter. I den fulle begrunnelsen skal du sette grønn check-emoji bak oppgaver med full uttelling.
+
+Det er svært sjeldent at en kandidat ikke har svart på en oppgave, så hvis du tolker at det ikke er svart, prøv å se etter et svar. 
+I flervalgsoppgaver er formatet omtrentlig slik 'B (A, B, C, D)' løpende i teksten. Da er det det elementet som kommer to ganger som er svaret (B i DETTE tilfellet). På starten av slike oppgaver står det ofte noe slik som "velg riktig alternativ".
+Drag-and-drop-oppgaver er slik at hvis koden på slutten av oppgaven er rett, er oppgaven rett besvart.
 
 Karakterskala:
 A: 89-100%
@@ -207,18 +172,17 @@ C: 65-76%
 D: 53-64%
 E: 40-52%
 F: <40 %
-Karakteren skal gis basert på poengsum og karakterskalaen. Sett en grønn check-emoji bak oppgavene med full uttelling i den stegvise vurderingen.
 """
 
     try:
         response = client.chat.completions.create(
             model="chatgpt-4o-latest", 
             messages=[
-                {"role": "system", "content": "Du er en streng, men rettferdig sensor med full kjennskap til faget."},
+                {"role": "system", "content": "Du er rettferdig sensor med full kjennskap til faget. Dersom det er feil svar, skal du likevel gi litt poeng dersom det vises forståelse"},
                 {"role": "user", "content": prompt}
             ],
             max_tokens=3000,
-            temperature=0.3
+            temperature=0.4
         )
         raw_content = response.choices[0].message.content.strip()
 
