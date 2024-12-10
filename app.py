@@ -52,8 +52,10 @@ def upload(subject_code):
         subject_info = fetch_subject_info(subject_code)
         exam_content = read_file_content(exam_path)
         solution_content = read_file_content(solution_path) if solution_path else None
+        form_field_content = extract_form_fields(exam_path)
+        ocr_content = detect_selected_answers_ocr(exam_path)
 
-        grade, short_reason, full_reason, reasoning = get_feedback_from_chatgpt(subject_code, subject_info, exam_content, solution_content)
+        grade, short_reason, full_reason, reasoning = get_feedback_from_chatgpt(subject_code, subject_info, exam_content, solution_content,  ocr_content, form_field_content)
 
         # Fjern '**' fra karakter og begrunnelser
         grade = grade.replace('**', '')
@@ -81,23 +83,12 @@ def extract_form_fields(pdf_path):
     fields = []
     if '/AcroForm' in pdf:
         acroform = pdf['/AcroForm']
-        if acroform and '/Fields' in acroform:
-            for f in acroform['/Fields']:
-                field = f.resolve()
-                name = field.get('/T')
-                field_type = field.get('/FT')
-                value = field.get('/V')
-                options = field.get('/Opt')
-                
-                field_info = {
-                    'name': name,
-                    'type': field_type,
-                    'value': value,
-                }
-                if options:
-                    field_info['options'] = options
-                
-                fields.append(field_info)
+        if '/Fields' in acroform:
+            for field in acroform['/Fields']:
+                field_dict = field.resolve()
+                name = field_dict.get('/T')
+                value = field_dict.get('/V', 'Ikke valgt')
+                fields.append({'name': name, 'value': value})
     return fields
 
 def fetch_subject_info(subject_code):
@@ -115,43 +106,57 @@ def fetch_subject_info(subject_code):
 
 
 def read_file_content(file_path):
-    if file_path is None:
+    if not file_path:
         return ""
+
     _, file_extension = os.path.splitext(file_path)
+    content = ""
+
     if file_extension.lower() == '.pdf':
-        text = read_pdf(file_path)
+        # 1. Trekk ut tekst fra PDF
+        pdf_text = read_pdf(file_path)
+        content += f"\n\n[PDF Tekstuttrekk:]\n{pdf_text}"
+
+        # 2. Trekk ut formfelter (multiple-choice eller skjema)
         form_fields = extract_form_fields(file_path)
-
-        if form_fields and len(form_fields) > 0:
-            # Form fields funnet
-            form_info = "\n\n[Form Fields (kandidatens valgte svar på flervalg og felt):]\n"
-            for fld in form_fields:
-                name = fld.get('name', 'Ukjent felt')
-                ftype = fld.get('type', 'Ukjent type')
-                val = fld.get('value', 'Ingen verdi')
-                
-                form_info += f"Felt: {name}\n"
-                form_info += f" - Type: {ftype}\n"
-                form_info += f" - Verdi: {val}\n"
-                if 'options' in fld:
-                    form_info += f" - Mulige alternativer:\n"
-                    for opt in fld['options']:
-                        opt_val = opt if isinstance(opt, str) else opt.to_unicode()
-                        form_info += f"   * {opt_val}\n"
-                
-                form_info += "\n"
-            text += form_info
+        if form_fields:
+            content += "\n\n[Skjemaopplysninger (multiple-choice):]\n"
+            for field in form_fields:
+                name = field.get('name', 'Ukjent felt')
+                value = field.get('value', 'Ingen verdi')
+                content += f"Felt: {name}, Verdi: {value}\n"
         else:
-            # Ingen formfelter - bruk OCR
-            text += detect_selected_answers_ocr(file_path)
+            content += "\n\n[Ingen skjemaopplysninger funnet.]\n"
 
-        return text
+        # 3. OCR for grafiske elementer og kryss
+        ocr_text = detect_selected_answers_ocr(file_path)
+        content += f"\n\n[OCR-oppdagelser:]\n{ocr_text}"
 
-    elif file_extension.lower() in ['.txt', '.md']:
-        with open(file_path, 'r', encoding='utf-8') as file:
-            return file.read()
     else:
-        return ""
+        content += f"Ukjent filformat: {file_extension}"
+
+    return content
+
+
+def detect_selected_answers_ocr(file_path):
+    """
+    Bruk OCR for å identifisere kryssede svar i multiple-choice-spørsmål.
+    """
+    ocr_results = "\n\n[Valgte svar fra OCR]:\n"
+    with tempfile.TemporaryDirectory() as temp_dir:
+        images = convert_from_path(file_path, output_folder=temp_dir, dpi=300)
+        for page_number, image in enumerate(images, start=1):
+            ocr_text = pytesseract.image_to_string(image, lang='nor')  # Eller 'eng' for engelsk
+            # Tilpass regex for OCR-resultater:
+            pattern = r'■\s*(.*)'  # Fanger opp valgte alternativer merket med '■'
+            matches = re.findall(pattern, ocr_text, re.MULTILINE)
+            if matches:
+                ocr_results += f"Side {page_number}:\n"
+                for match in matches:
+                    ocr_results += f"- {match}\n"
+            else:
+                ocr_results += f"Side {page_number}: Ingen valgte svar funnet.\n"
+    return ocr_results
 
 
 def read_pdf(file_path):
@@ -165,28 +170,7 @@ def read_pdf(file_path):
     return text
 
 
-def detect_selected_answers_ocr(file_path):
-    """
-    Bruk OCR for å identifisere valgte svar.
-    Juster koden nedenfor etter hvordan valgte alternativer vises i OCR-tekst.
-    Anta for eksempel at valgte svar gjenkjennes av OCR som "(X)" eller "■".
-    """
-    info_str = "\n\n[Forsøk på å identifisere valgte svar via OCR:]\n"
-    with tempfile.TemporaryDirectory() as temp_dir:
-        images = convert_from_path(file_path, output_folder=temp_dir, fmt='png', dpi=300)
-        for i, img in enumerate(images):
-            ocr_text = pytesseract.image_to_string(img, lang='nor')  # ev. 'eng' hvis engelsk
-            # Eksempel: Søk etter linjer med '(X)' eller '■' foran alternativet
-            # Juster regex basert på virkelige resultater fra OCR
-            # Eksempel regex: søk etter linjer som starter med '[x]' eller '(x)'
-            pattern = r'^[\(\[]x[\)\]]\s+(.*)$'  # juster om nødvendig
-            matches = re.findall(pattern, ocr_text, re.MULTILINE|re.IGNORECASE)
-            for match in matches:
-                info_str += f"Valgt svar funnet på side {i+1}: {match}\n"
-    return info_str
-
-
-def get_feedback_from_chatgpt(subject_code, subject_info, exam_content, solution_content):
+def get_feedback_from_chatgpt(subject_code, subject_info, exam_content, solution_content, ocr_content, form_field_content):
     print(exam_content)
     prompt = f"""
 Du er en sensor i faget {subject_code}. Her er informasjon om emnet:
@@ -198,6 +182,14 @@ Nedenfor er kandidatens eksamensbesvarelse, inkludert alle fritekstsvar, kode, f
 --- Kandidatens eksamensbesvarelse START ---
 {exam_content}
 --- Kandidatens eksamensbesvarelse SLUTT ---
+
+--- Skjemaopplysninger START ---
+{form_field_content}
+--- Skjemaopplysninger SLUTT ---
+
+--- OCR-data START ---
+{ocr_content}
+--- OCR-data SLUTT ---
 
 --- Løsningsforslag START ---
 {f"{solution_content}" if solution_content else "Ingen løsningsforslag ble oppgitt."}
