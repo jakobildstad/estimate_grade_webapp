@@ -117,12 +117,31 @@ def read_pdf(file_path):
 
 
 def get_feedback_from_chatgpt(subject_code, subject_info, exam_content, solution_content, multiple__choice_answers):
+    print(multiple__choice_answers)
     prompt = f"""
 Du er en sensor i faget {subject_code}. Her er informasjon om emnet:
 {subject_info}
 {infodict[subject_code] if subject_code in infodict else ""}
 
 Nedenfor er kandidatens eksamensbesvarelse. Du må anta at dette er en nøyaktig gjengivelse av kandidatens svar.
+
+Vurder besvarelsen basert på informasjonen om emnet. Først skal du resonnere stegvis og grundig om besvarelsen (chain-of-thought). 
+På aller siste linje skal du oppgi Karakter||Kort begrunnelse||Full begrunnelse, og ikke nevn karakteren før siste linje. 
+Eksempel på aller siste linje:
+B||Kandidaten oppnådde 73%, som tilsvarer karakteren C.||Kandidaten leverte sterke løsninger på programmeringsoppgavene i fritekstdelen, men manglet flere svar i flervalgsdelen, noe som trakk ned den totale poengsummen.
+Du må følge karakterskalaen når du setter karakter. I den fulle begrunnelsen skal du sette grønn check-emoji bak oppgaver med full uttelling.
+
+Det er svært sjeldent at en kandidat ikke har svart på en oppgave, så hvis du tolker at det ikke er svart, prøv å se etter et svar etter følgende mønster:
+I flervalgsoppgaver er formatet omtrentlig slik 'B (A, B, C, D)' løpende i teksten. Da er det det elementet som kommer to ganger som er svaret (B i DETTE tilfellet). På starten av slike oppgaver står det ofte noe slik som "velg riktig alternativ".
+Drag-and-drop-oppgaver er slik at hvis koden på slutten av oppgaven er rett, er oppgaven rett besvart. Du skal gi noe uttelling hvis noe er rett.
+
+Karakterskala:
+A: 89-100%
+B: 77-88%
+C: 65-76%
+D: 53-64%
+E: 40-52%
+F: <40 %
 
 --- Kandidatens eksamensbesvarelse START ---
 {exam_content}
@@ -137,23 +156,6 @@ Nedenfor er kandidatens eksamensbesvarelse. Du må anta at dette er en nøyaktig
 --- Løsningsforslag SLUTT ---
 
 
-Vurder besvarelsen basert på informasjonen om emnet. Først skal du resonnere stegvis og grundig om besvarelsen (chain-of-thought). 
-På aller siste linje skal du oppgi Karakter||Kort begrunnelse||Full begrunnelse, og ikke nevn karakteren før siste linje. 
-Eksempel på aller siste linje:
-B||Kandidaten oppnådde 73%, som tilsvarer karakteren C.||Kandidaten leverte sterke løsninger på programmeringsoppgavene i fritekstdelen, men manglet flere svar i flervalgsdelen, noe som trakk ned den totale poengsummen.
-Du må følge karakterskalaen når du setter karakter. I den fulle begrunnelsen skal du sette grønn check-emoji bak oppgaver med full uttelling.
-
-Det er svært sjeldent at en kandidat ikke har svart på en oppgave, så hvis du tolker at det ikke er svart, prøv å se etter et svar. 
-I flervalgsoppgaver er formatet omtrentlig slik 'B (A, B, C, D)' løpende i teksten. Da er det det elementet som kommer to ganger som er svaret (B i DETTE tilfellet). På starten av slike oppgaver står det ofte noe slik som "velg riktig alternativ".
-Drag-and-drop-oppgaver er slik at hvis koden på slutten av oppgaven er rett, er oppgaven rett besvart.
-
-Karakterskala:
-A: 89-100%
-B: 77-88%
-C: 65-76%
-D: 53-64%
-E: 40-52%
-F: <40 %
 """
 
     try:
