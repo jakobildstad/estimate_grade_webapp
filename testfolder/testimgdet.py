@@ -2,9 +2,10 @@ import cv2
 import pytesseract
 import numpy as np
 
-def detect_highlighted_answer(image_path):
+def detect_highlighted_answer(image_path, resize_ratio=0.8): #lavere resize er raskere men for lav risikerer unøyaktighet i tolkning av tesseract
     # Load the image
     img = cv2.imread(image_path)
+    img = cv2.resize(img, None, fx=resize_ratio, fy=resize_ratio, interpolation=cv2.INTER_AREA)
 
     # Convert to HSV to detect blue region
     hsv_img = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
@@ -39,5 +40,5 @@ def detect_highlighted_answer(image_path):
     return "No highlighted answer detected"
 
 # Example usage
-result = detect_highlighted_answer("/Users/jakobildstad/Documents/VSC_general/estimate_grade_webapp/testfolder/testimg.png")
+result = detect_highlighted_answer("/Users/jakobildstad/Documents/VSC_general/estimate_grade_webapp/testfolder/testimg2.png")
 print(result)
