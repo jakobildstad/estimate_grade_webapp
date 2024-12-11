@@ -4,8 +4,9 @@ import requests
 from bs4 import BeautifulSoup
 import PyPDF2
 from openai import OpenAI
-from applib import API_KEY, infodict
 import markdown
+from libraries.applib import API_KEY, infodict #egen
+from libraries.answerdetection import fetch_multiple_choice_answers #egen
 
 client = OpenAI(api_key=API_KEY)
 app = Flask(__name__)
@@ -45,10 +46,11 @@ def upload(subject_code):
         subject_info = fetch_subject_info(subject_code)
         exam_content = read_file_content(exam_path)
         solution_content = read_file_content(solution_path) if solution_path else None
+        multiple_choice_answers = fetch_multiple_choice_answers(exam_path)
 
 
         grade, short_reason, full_reason, reasoning = get_feedback_from_chatgpt(
-            subject_code, subject_info, exam_content, solution_content
+            subject_code, subject_info, exam_content, solution_content, multiple__choice_answers=multiple_choice_answers
         )
 
         # Fjern '**' fra karakter og begrunnelser
@@ -114,7 +116,7 @@ def read_pdf(file_path):
     return text
 
 
-def get_feedback_from_chatgpt(subject_code, subject_info, exam_content, solution_content):
+def get_feedback_from_chatgpt(subject_code, subject_info, exam_content, solution_content, multiple__choice_answers):
     prompt = f"""
 Du er en sensor i faget {subject_code}. Her er informasjon om emnet:
 {subject_info}
@@ -125,6 +127,10 @@ Nedenfor er kandidatens eksamensbesvarelse. Du må anta at dette er en nøyaktig
 --- Kandidatens eksamensbesvarelse START ---
 {exam_content}
 --- Kandidatens eksamensbesvarelse SLUTT ---
+
+--- Svar på flervalgsoppgaver START ---
+{multiple__choice_answers}
+--- Svar på flervalgsoppgaver SLUTT ---
 
 --- Løsningsforslag START ---
 {f"{solution_content}" if solution_content else "Ingen løsningsforslag ble oppgitt."}
