@@ -2,7 +2,7 @@ import cv2
 import pytesseract
 import numpy as np
 
-def detect_highlighted_answer(image_path, resize_ratio=0.8): #lavere resize er raskere men for lav risikerer unøyaktighet i tolkning av tesseract
+def detect_highlighted_answer(image_path, resize_ratio=0.7): #lavere resize er raskere men for lav risikerer unøyaktighet i tolkning av tesseract
     # Load the image
     img = cv2.imread(image_path)
     img = cv2.resize(img, None, fx=resize_ratio, fy=resize_ratio, interpolation=cv2.INTER_AREA)
@@ -10,9 +10,13 @@ def detect_highlighted_answer(image_path, resize_ratio=0.8): #lavere resize er r
     # Convert to HSV to detect blue region
     hsv_img = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
 
+    cropped_path = f"/Users/jakobildstad/Documents/VSC_general/estimate_grade_webapp/testfolder/imgfolder/cropped_page_processed.png"
+    cv2.imwrite(cropped_path, hsv_img)
+
     # Define the range for detecting blue (adjust as needed) fargen er: 188, 216, 240?? Verdiene under funker gjennom trial and error.
-    lower_blue = np.array([70, 40, 230])
-    upper_blue = np.array([120, 50, 255])
+
+    lower_blue = np.array([94, 46, 230])
+    upper_blue = np.array([104, 66, 250])
 
     # Create a mask for the blue region
     mask = cv2.inRange(hsv_img, lower_blue, upper_blue)

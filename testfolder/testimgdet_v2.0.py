@@ -28,7 +28,7 @@ def extract_pages_with_text(pdf_path, target_text="Velg ett alternativ"):
         for i, page in enumerate(pdf.pages):
             text = page.extract_text()
             if text and target_text.lower() in text.lower():
-                pages_with_text.append(i) #OBS
+                pages_with_text.append(i)
                 logging.info(f"Fant '{target_text}' på side {i + 1}.")
     return pages_with_text
 
@@ -114,9 +114,9 @@ def detect_highlighted_answer(img, resize_ratio=0.8, max_contours=5): #lavere re
     # Convert to HSV to detect blue region
     hsv_img = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
 
-    # Define the range for detecting blue (adjust as needed) fargen er: 188, 216, 240?? Verdiene under funker gjennom trial and error.
-    lower_blue = np.array([70, 40, 230])
-    upper_blue = np.array([120, 50, 255])
+    # Define the range for detecting blue (adjust as needed)
+    lower_blue = np.array([94, 46, 230])
+    upper_blue = np.array([104, 66, 250])
 
     # Create a mask for the blue region
     mask = cv2.inRange(hsv_img, lower_blue, upper_blue)
