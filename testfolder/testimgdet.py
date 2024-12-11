@@ -40,5 +40,5 @@ def detect_highlighted_answer(image_path, resize_ratio=0.8): #lavere resize er r
     return "No highlighted answer detected"
 
 # Example usage
-result = detect_highlighted_answer("/Users/jakobildstad/Documents/VSC_general/estimate_grade_webapp/testfolder/testimg2.png")
+result = detect_highlighted_answer("/Users/jakobildstad/Documents/VSC_general/estimate_grade_webapp/testfolder/imgfolder/cropped_page_17.png")
 print(result)

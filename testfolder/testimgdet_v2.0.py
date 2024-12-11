@@ -4,6 +4,7 @@ import numpy as np
 import pdfplumber
 from pdf2image import convert_from_path
 import logging
+from fuzzywuzzy import fuzz
 
 PDF_PATH = "/Users/jakobildstad/Documents/VSC_general/estimate_grade_webapp/testfolder/jakob_exam.pdf"
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -14,7 +15,8 @@ def main():
     print(pages_with_text)
     convert_pages_to_images(PDF_PATH, pages_with_text)
     """
-    process_pdf(PDF_PATH)
+    results = process_pdf(PDF_PATH)
+    print(results)
 
 def extract_pages_with_text(pdf_path, target_text="Velg ett alternativ"):
     """
@@ -45,7 +47,7 @@ def convert_pages_to_images(pdf_path, pages, dpi=300):
         logging.info(f"Konverterte side {page_number + 1} til bilde.")
     return images
 
-def find_text_location(image, target_text="Velg ett alternativ"):
+def find_text_location(image, target_text="Velg ett alternativ", threshold=80):
     """
     Bruker OCR til å finne posisjonen til target_text i et bilde.
     Returnerer (x, y, w, h) hvis funnet, ellers None.
@@ -54,21 +56,45 @@ def find_text_location(image, target_text="Velg ett alternativ"):
     n_boxes = len(data['level'])
     for i in range(n_boxes):
         text = data['text'][i].strip()
-        if text.lower() == target_text.lower():
+        similarity = fuzz.partial_ratio(text.lower(), target_text.lower())
+        if similarity >= threshold:
             x, y, w, h = data['left'][i], data['top'][i], data['width'][i], data['height'][i]
-            logging.info(f"Fant '{target_text}' på posisjon: ({x}, {y}, {w}, {h})")
+            logging.info(f"Fant '{target_text}' på posisjon: ({x}, {y}, {w}, {h}) med likhet: {similarity}")
             return (x, y, w, h)
     return None
 
-def crop_answer_region(image, text_box, offset_y=30, offset_h=100, offset_x=0, offset_w=300):
+def crop_answer_region(image, text_box, page_height, page_width, padding=10):
     """
-    Cropper området hvor det markerte svaret sannsynligvis er, basert på posisjonen til målteksten.
-    Juster offset-verdiene etter behov basert på PDF-layouten.
+    Cropper 1/3 av siden under posisjonen til målteksten "Velg ett alternativ".
+    
+    Parameters:
+    - image: OpenCV-bilde av siden.
+    - text_box: Tuple (x, y, w, h) for posisjonen til "Velg ett alternativ".
+    - page_height: Total høyde på siden i piksler.
+    - page_width: Total bredde på siden i piksler.
+    - padding: Antall piksler mellom slutten av teksten og startpunktet for cropping.
+    
+    Returns:
+    - Cropped bilde som dekker 1/3 av siden under målteksten.
     """
     x, y, w, h = text_box
-    # Definer området under målteksten hvor svaret befinner seg
-    cropped = image[y + h + offset_y : y + h + offset_y + offset_h, x + offset_x : x + offset_x + offset_w]
-    logging.info(f"Cropped området for svar: {cropped.shape}")
+    # Startpunkt for cropping: slutten av teksten + padding
+    crop_start_y = y + h + padding
+    # Høyde på det croppede området: 1/3 av siden
+    crop_height = page_height // 2
+    # Sørg for at vi ikke går utenfor bildet
+    crop_end_y = min(crop_start_y + crop_height, page_height)
+    
+    # Hvis du ønsker å dekke hele bredden:
+    crop_start_x = 0
+    crop_width = page_width
+    
+    # Alternativt, hvis du vil beholde bredden rundt teksten:
+    # crop_start_x = max(x - 50, 0)  # Juster 50 piksler til venstre
+    # crop_width = min(w + 100, page_width - crop_start_x)  # Juster 50 piksler til høyre
+    
+    cropped = image[crop_start_y:crop_end_y, crop_start_x:crop_start_x + crop_width]
+    logging.info(f"Cropped området for svar: {cropped.shape} (start_y: {crop_start_y}, end_y: {crop_end_y})")
     return cropped
 
 def preprocess_image_for_ocr(image):
@@ -76,50 +102,46 @@ def preprocess_image_for_ocr(image):
     Forhåndsbehandler bildet for bedre OCR-resultater.
     """
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    gray = cv2.GaussianBlur(gray, (5, 5), 0)
     # Anvend binær terskling
     _, thresh = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY_INV)
     return thresh
 
-def detect_highlighted_answer(image, resize_ratio=0.8):
-    """
-    Funksjon for å oppdage markert svar i et bilde.
-    """
-    # Reduser oppløsningen
-    img = cv2.resize(image, None, fx=resize_ratio, fy=resize_ratio, interpolation=cv2.INTER_AREA)
+def detect_highlighted_answer(img, resize_ratio=0.8, max_contours=5): #lavere resize er raskere men for lav risikerer unøyaktighet i tolkning av tesseract
+    #Preprocess
+    img = cv2.resize(img, None, fx=resize_ratio, fy=resize_ratio, interpolation=cv2.INTER_AREA)
 
-    # Konverter til HSV for å detektere blå region
+    # Convert to HSV to detect blue region
     hsv_img = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
 
-    # Definer rekkevidden for å detektere blå (juster etter behov)
+    # Define the range for detecting blue (adjust as needed) fargen er: 188, 216, 240?? Verdiene under funker gjennom trial and error.
     lower_blue = np.array([70, 40, 230])
     upper_blue = np.array([120, 50, 255])
 
-    # Lag en maske for den blå regionen
+    # Create a mask for the blue region
     mask = cv2.inRange(hsv_img, lower_blue, upper_blue)
 
-    # Finn konturer av den blå regionen
-    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    # Find contours of the blue area
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE) #[:max_contours]
 
-    # Sorter konturer etter areal for å fokusere på den største (sannsynligvis høydepunktert)
+    # Sort contours by area to focus on the largest (likely the highlight)
     contours = sorted(contours, key=cv2.contourArea, reverse=True)
 
     for contour in contours:
-        # Få bounding box av det markerte området
+        # Get bounding box of the highlighted region
         x, y, w, h = cv2.boundingRect(contour)
 
-        # Crop det markerte området
+        # Crop the highlighted region
         cropped = img[y:y+h, x:x+w]
 
-        # Bruk OCR på det croppede bildet
-        custom_config = r'--oem 3 --psm 6'
-        answer_text = pytesseract.image_to_string(cropped, lang='nor', config=custom_config)
+        # Use OCR on the cropped image
+        answer_text = pytesseract.image_to_string(cropped, lang='nor')
 
-        # Returner det oppdagede svaret
+        # Return the detected answer
         if answer_text.strip():
-            logging.info(f"Oppdaget markert svar: {answer_text.strip()}")
-            return answer_text.strip()
-
-    return "Ingen markert svar oppdaget"
+            return f"Highlighted Answer: {answer_text.strip()}"
+    
+    return "No highlighted answer detected"
 
 def process_pdf(pdf_path):
     """
@@ -131,23 +153,35 @@ def process_pdf(pdf_path):
     if not pages:
         logging.warning("Ingen sider med 'Velg ett alternativ' funnet.")
         return []
-
+    
     # Trinn 2: Konverter identifiserte sider til bilder
     images = convert_pages_to_images(pdf_path, pages, dpi=300)
-
+    
     results = []
     for page_number, image in images:
+        # Hent dimensjonene til siden
+        page_height, page_width = image.shape[:2]
+        
         # Trinn 3: Finn posisjonen til "Velg ett alternativ"
         text_box = find_text_location(image, "Velg ett alternativ")
         if text_box:
-            # Trinn 4: Crop området hvor det markerte svaret er
-            answer_region = crop_answer_region(image, text_box)
+            # Trinn 4: Crop området hvor det markerte svaret er (1/3 av siden under teksten)
+            answer_region = crop_answer_region(image, text_box, page_height, page_width)
+
+            #Lagrer bildet for inspeksjon
+            """
+            cropped_path = f"/Users/jakobildstad/Documents/VSC_general/estimate_grade_webapp/testfolder/imgfolder/cropped_page_{page_number + 1}.png"
+            cv2.imwrite(cropped_path, answer_region)
+            logging.info(f"Lagrer croppede bilde som {cropped_path}")
+            """
             
-            # Trinn 5: Forhåndsbehandle bildet for OCR
-            preprocessed = preprocess_image_for_ocr(answer_region)
+            # Trinn 5: Oppdag det markerte svaret uten forhåndsbehandling
+            answer = detect_highlighted_answer(answer_region)
             
-            # Trinn 6: Oppdag det markerte svaret
-            answer = detect_highlighted_answer(preprocessed)
+            # Optional: Forhåndsbehandle det detekterte svaret for OCR hvis nødvendig
+            # preprocessed = preprocess_image_for_ocr(answer_region)
+            # answer = detect_highlighted_answer(preprocessed)
+            
             results.append({
                 "page": page_number + 1,  # Gjør det 1-indeksert for lesbarhet
                 "answer": answer
