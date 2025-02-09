@@ -1,5 +1,5 @@
 
-API_KEY = "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"
+API_KEY = "--" #removed for privacy
 
 infodict = {
     "TDT4110": """Pensumliste: Uttrykk i Python (F Uke 34, Ø1)
